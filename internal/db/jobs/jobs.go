@@ -84,3 +84,54 @@ func (j *Job) UpdateStaus(ctx context.Context, id uuid.UUID, status models.JobSt
 	}
 	return nil
 }
+
+func (j *Job) UpdateResult(ctx context.Context, id uuid.UUID, result []byte, status models.JobStatus) error {
+	updates := map[string]interface{}{
+		"result":       result,
+		"status":       status,
+		"updated_at":   time.Now().UTC(),
+		"completed_at": time.Now().UTC(),
+	}
+	dbResult := j.db.WithContext(ctx).Model(&models.Job{}).Where("id = ?", id).Updates(updates)
+	if dbResult != nil {
+		return fmt.Errorf("failed to update job result: %w", dbResult.Error)
+	}
+	if dbResult.RowsAffected == 0 {
+		return fmt.Errorf("job not found")
+	}
+	return nil
+}
+
+func (j *Job) UpdateError(ctx context.Context, id uuid.UUID, errormsg string, status models.JobStatus) error {
+	updates := map[string]interface{}{
+		"error":      errormsg,
+		"status":     status,
+		"updated_at": time.Now().UTC(),
+	}
+	if status == models.JobStatusFailed {
+		updates["completed_at"] = time.Now().UTC()
+	}
+	result := j.db.WithContext(ctx).Model(&models.Job{}).Where("id = ?", id).Updates(updates)
+	if result.Error != nil {
+		return fmt.Errorf("failed to update job error: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("job not found")
+	}
+	return nil
+}
+
+func (j *Job) RetryIncerment(ctx context.Context, id uuid.UUID) error {
+	result := j.db.WithContext(ctx).Model(&models.Job{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"retry_count": gorm.Expr("retry_count + 1"),
+		"updated_at":  time.Now().UTC(),
+	})
+	if result.Error != nil {
+		return fmt.Errorf("failed to increment retry count: %w", result.Error)
+	}
+
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("job not found")
+	}
+	return nil
+}
