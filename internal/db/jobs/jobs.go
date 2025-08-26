@@ -260,3 +260,37 @@ func (j *Job) GetStats(ctx context.Context) (*models.JobStats, error) {
 	stats.Retrying = statusCounts[models.JobStatusRetry]
 	return stats, nil
 }
+
+func (j *Job) Delete(ctx context.Context, id uuid.UUID) error {
+	result := j.db.WithContext(ctx).Delete(&models.Job{}, "id = ?", id)
+	if result.Error != nil {
+		return fmt.Errorf("failed to delete job: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("job not found")
+	}
+	return nil
+}
+
+func (j *Job) HardDelete(ctx context.Context, id uuid.UUID) error {
+	result := j.db.WithContext(ctx).Unscoped().Delete(&models.Job{}, "id = ?", id)
+	if result.Error != nil {
+		return fmt.Errorf("failed to delete job: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("job not found")
+	}
+	return nil
+}
+
+func (j *Job) CleanUp(ctx context.Context, older time.Time, statuses []models.JobStatus) (int64, error) {
+	query := j.db.WithContext(ctx).Where("completed_at < ?", older)
+	if len(statuses) > 0 {
+		query = query.Where("status IN ?", statuses)
+	}
+	result := query.Delete(&models.Job{})
+	if result.Error != nil {
+		return 0, fmt.Errorf("failed to cleanup jobs: %w", result.Error)
+	}
+	return result.RowsAffected, nil
+}
