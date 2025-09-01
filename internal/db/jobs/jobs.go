@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -34,6 +35,10 @@ type JobFilter struct {
 	SortOrder string `json:"sort_order,omitempty"` // asc, desc
 
 }
+
+var (
+	ErrJobNotFound = errors.New("job not found")
+)
 
 func NewJob(db *gorm.DB) *Job {
 	return &Job{db: db}

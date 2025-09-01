@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/7h3-3mp7y-m4n/atlas/internal/db/jobs"
@@ -191,9 +192,81 @@ func (s *Server) cancelJobHandler(c *gin.Context) {
 }
 
 func (s *Server) listJobsHandler(c *gin.Context) {
-	fmt.Println("soon work on this") //TODO:
+	requestID := c.GetString("request_id")
+	log := s.logger.WithRequestID(requestID)
+	// query parameters
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	if limit < 1 || limit > 100 {
+		limit = 20
+	}
+	offset := (page - 1) * limit
+	status := c.Query("status")
+	jobType := c.Query("type")
+	queueName := c.Query("queue")
+
+	filter := &jobs.JobFilter{
+		Status:    []models.JobStatus{models.JobStatus(status)},
+		Type:      []models.JobType{models.JobType(jobType)},
+		QueueName: queueName,
+		Limit:     limit,
+		Offset:    offset,
+	}
+	// Get jobs from database
+	jobRepo := jobs.NewJob(s.db.DB)
+	jobs, total, err := jobRepo.List(c.Request.Context(), filter)
+	if err != nil {
+		log.Error("Failed to list jobs", zap.Error(err))
+		s.respondWithError(c, http.StatusInternalServerError, "DATABASE_ERROR", "Failed to retrieve jobs", "")
+		return
+	}
+	//convert that shit
+	jobResponses := make([]models.JobResponse, len(jobs))
+	for i, job := range jobs {
+		jobResponses[i] = job.ToResponse()
+	}
+	totalPages := int(total) / limit
+	if int(total)%limit != 0 {
+		totalPages++
+	}
+	response := models.JobListResponse{
+		Jobs:  jobResponses,
+		Total: total,
+		Page:  page,
+		Limit: limit,
+		Pages: totalPages,
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 func (s *Server) getJobHandler(c *gin.Context) {
-	fmt.Println("soon work on this") //TODO:
+	requestID := c.GetString("request_id")
+	log := s.logger.WithRequestID(requestID)
+	jobIDStr := c.Param("id")
+	jobID, err := uuid.Parse(jobIDStr)
+	if err != nil {
+		log.Error("Invalid job ID format", zap.String("job_id", jobIDStr))
+		s.respondWithError(c, http.StatusBadRequest, "INVALID_JOB_ID",
+			"Invalid job ID format", "")
+		return
+	}
+	// Get job from database same as evey each setps
+	jobRepo := jobs.NewJob(s.db.DB)
+	job, err := jobRepo.GetJobById(c.Request.Context(), jobID)
+	if err != nil {
+		if err == jobs.ErrJobNotFound {
+			s.respondWithError(c, http.StatusNotFound, "JOB_NOT_FOUND",
+				"Job not found", "")
+			return
+		}
+
+		log.Error("Failed to get job", zap.String("job_id", jobID.String()), zap.Error(err))
+		s.respondWithError(c, http.StatusInternalServerError, "DATABASE_ERROR",
+			"Failed to retrieve job", "")
+		return
+	}
+	c.JSON(http.StatusOK, job.ToResponse())
 }
