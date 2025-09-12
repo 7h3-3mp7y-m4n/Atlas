@@ -24,11 +24,11 @@ type Server struct {
 	router     *gin.Engine
 }
 
-func NewServer(cfg *config.Config, database *db.DB, q queue.QueueMessage, log *logger.Logger) *Server {
+func NewServer(cfg *config.Config, database *db.DB, q *queue.RedisQueue, log *logger.Logger) *Server {
 	server := &Server{
 		config: cfg,
 		db:     database,
-		queue:  queue.RedisQueue{},
+		queue:  *q,
 		logger: log,
 	}
 	server.setupRouter()

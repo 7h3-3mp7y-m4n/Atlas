@@ -4,9 +4,9 @@ services:
   postgres:
     image: postgres:18beta3-alpine3.22
     environment:
-      POSTGRES_USER: test
-      POSTGRES_PASSWORD: test
-      POSTGRES_DB: atlas_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: job_scheduler
     ports:
       - "5433:5432"
   redis:
