@@ -89,5 +89,107 @@ func (p *Pool) Start(ctx context.Context) error {
 		}
 		p.worker[i] = worker
 	}
+	for _, worker := range p.worker {
+		p.workerWg.Add(1)
+		go worker.run(ctx)
+	}
+	return nil
+}
+
+func (p *Pool) Stop(ctx context.Context) error {
+	p.mu.Lock()
+	if !p.isRunning {
+		p.mu.Unlock()
+		return nil
+	}
+	p.isRunning = false
+	p.mu.Unlock()
+	p.logger.Info("Stopping worker pool gracefully!!!!")
+	// Signal all workers to stop
+	close(p.stopChan)
+	for _, worker := range p.worker {
+		close(worker.stopChan)
+	}
+	done := make(chan struct{})
+	go func() {
+		p.workerWg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		p.logger.Info("All workers stopped gracefully!!!!!!")
+	case <-ctx.Done():
+		p.logger.Warn("Worker pool shutdown timeout reached, forcing stop!!!!!")
+	}
+	close(p.stoppedChan)
+	return nil
+}
+
+func (w *Worker) run(ctx context.Context) {
+	defer w.pool.workerWg.Done()
+
+	w.mu.Lock()
+	w.isRunning = true
+	w.mu.Unlock()
+
+	w.logger.Info("Worker started", zap.String("worker_id", w.id))
+
+	ticker := time.NewTicker(w.pool.config.PollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-w.stopChan:
+			w.logger.Info("Worker received stop signal", zap.String("worker_id", w.id))
+			w.shutdown()
+			return
+
+		case <-w.pool.stopChan:
+			w.logger.Info("Worker pool received stop signal", zap.String("worker_id", w.id))
+			w.shutdown()
+			return
+
+		case <-ctx.Done():
+			w.logger.Info("Context cancelled", zap.String("worker_id", w.id))
+			w.shutdown()
+			return
+
+		case <-ticker.C:
+			if err := w.processJob(ctx); err != nil {
+				// Only log if its not a "no jobs available" error
+				if err.Error() != "no jobs available" {
+					w.logger.Error("Error processing job",
+						zap.String("worker_id", w.id),
+						zap.Error(err),
+					)
+				}
+			}
+		}
+	}
+}
+
+func (p *Pool) IsRunning() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.isRunning
+}
+
+func (w *Worker) shutdown() {
+	w.mu.Lock()
+	w.isRunning = false
+	w.mu.Unlock()
+
+	w.logger.Info("Worker shutdown completed", zap.String("worker_id", w.id))
+}
+
+func (w *Worker) IsRunning() bool {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.isRunning
+}
+
+func (w *Worker) processJob(ctx context.Context) error {
+	// Dequeue a job
 	return nil
 }
